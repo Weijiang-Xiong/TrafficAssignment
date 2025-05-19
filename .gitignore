@@ -150,3 +150,6 @@ demos_and_examples/uxsim/*
 
 # Pycharm
 .idea/
+
+# DS_Store file for MacOS at all levels
+.DS_Store
