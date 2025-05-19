@@ -7,6 +7,7 @@ import csv, time, math, string, warnings, copy
 from collections import deque, OrderedDict
 from collections import defaultdict as ddict
 import warnings
+from copy import deepcopy
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -2534,7 +2535,7 @@ class World:
             W.print = noprint
 
     @catch_exceptions_and_warn()
-    def show_network(W, width=1, left_handed=1, figsize=(6,6), network_font_size=10, node_size=6, show_id=True):
+    def show_network(W, width=1, left_handed=1, figsize=(6,6), network_font_size=10, node_size=6, show_id=True, show_link_name=True):
         """
         Visualizes the entire transportation network shape.
 
@@ -2583,7 +2584,8 @@ class World:
                     label = f"{l.id}: {l.name}"
                 else:
                     label = f"{l.name}"
-                plt.text(xmid1, ymid1, label, c="b", zorder=20, fontsize=network_font_size)
+                if show_link_name:
+                    plt.text(xmid1, ymid1, label, c="b", zorder=20, fontsize=network_font_size)
         maxx = max([n.x for n in W.NODES])
         minx = min([n.x for n in W.NODES])
         maxy = max([n.y for n in W.NODES])
