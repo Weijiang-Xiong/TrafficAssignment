@@ -19,6 +19,12 @@ from scipy.sparse.csgraph import floyd_warshall
 
 from .utils import *
 
+def zero_factory():
+    return 0
+
+def empty_list_factory():
+    return []
+
 def load_font_data(font_path=None):
     if font_path is None:
         font_resource = files('uxsim.files').joinpath('HackGen-Regular.ttf')
@@ -108,18 +114,18 @@ class Analyzer:
             return 0
         else:
             s.flag_od_analysis = 1
-
-        s.od_trips = ddict(lambda: 0)
-        s.od_trips_comp = ddict(lambda: 0)
-        s.od_tt_free = ddict(lambda: 0)
-        s.od_tt = ddict(lambda: [])
-        s.od_tt_ave = ddict(lambda: 0)
-        s.od_tt_std = ddict(lambda: 0)
-        s.od_dist = ddict(lambda: [])
-        s.od_dist_total = ddict(lambda: 0)
-        s.od_dist_ave = ddict(lambda: 0)
-        s.od_dist_std = ddict(lambda: 0)
-        s.od_dist_min = ddict(lambda: 0)
+            
+        s.od_trips = ddict(zero_factory)
+        s.od_trips_comp = ddict(zero_factory)
+        s.od_tt_free = ddict(zero_factory)
+        s.od_tt = ddict(empty_list_factory)
+        s.od_tt_ave = ddict(zero_factory)
+        s.od_tt_std = ddict(zero_factory)
+        s.od_dist = ddict(empty_list_factory)
+        s.od_dist_total = ddict(zero_factory)
+        s.od_dist_ave = ddict(zero_factory)
+        s.od_dist_std = ddict(zero_factory)
+        s.od_dist_min = ddict(zero_factory)
         dn = s.W.DELTAN
 
         #自由旅行時間と最短距離

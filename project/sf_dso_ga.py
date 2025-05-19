@@ -28,6 +28,12 @@ def create_world(name="", deltan=5, tmax=7200):
     
     return W
 
+def find_routes_for_od(od_pair, name, deltan, tmax, n_routes):
+    # Create a new World instance for each process to avoid sharing issues
+    temp_world = create_world(name=name, deltan=deltan, tmax=tmax)
+    
+    return (od_pair, Utilities.enumerate_k_shortest_routes(temp_world, od_pair[0], od_pair[1], n_routes))
+
 def find_routes_parallel(od_pairs, world, n_routes=6, verbose=False):
     """
     Find routes for each OD pair in parallel using process-based parallelism
@@ -41,12 +47,6 @@ def find_routes_parallel(od_pairs, world, n_routes=6, verbose=False):
     Returns:
         routes: Dictionary mapping each OD pair to its list of routes
     """
-    def find_routes_for_od(od_pair, n_routes):
-        # Create a new World instance for each process to avoid sharing issues
-        temp_world = create_world(name="")
-        
-        return (od_pair, Utilities.enumerate_k_shortest_routes(temp_world, od_pair[0], od_pair[1], n_routes))
-    
     routes = {}
 
     # Use ProcessPoolExecutor to parallelize the route enumeration
@@ -126,26 +126,94 @@ toolbox.register("select", tools.selTournament, tournsize=3)
 
 
 ##############################################################
+# Parallel fitness evaluation
+def evaluate_individual_for_parallel(individual_with_index):
+    """Helper function for parallel fitness evaluation"""
+    index, individual = individual_with_index
+    # Create a fresh copy of the original world
+    world = deepcopy(W_orig)
+    # Apply the individual's route specifications
+    specify_routes(world, individual)
+    # Evaluate fitness
+    fitness_value = evaluate_by_total_travel_time(world)
+    # Return index with the result to maintain original order
+    return index, fitness_value
+
+def evaluate_population_parallel(population):
+    """
+    Evaluate fitness of a population in parallel
+    
+    Args:
+        population: List of individuals to evaluate
+        
+    Returns:
+        List of fitness values in the same order as population
+    """
+    # Prepare inputs with indices to track ordering
+    inputs = [(i, ind) for i, ind in enumerate(population)]
+    
+    results = []
+    # Use ProcessPoolExecutor for parallel evaluation
+    with ProcessPoolExecutor() as executor:
+        futures = [executor.submit(evaluate_individual_for_parallel, inp) for inp in inputs]
+        
+        # Process results as they complete
+        for future in tqdm(as_completed(futures), total=len(population), desc="Evaluating fitness"):
+            results.append(future.result())
+    
+    # Sort results by index to maintain original order
+    results.sort(key=lambda x: x[0])
+    
+    # Extract and return fitness values and worlds
+    fitness_values = [res[1] for res in results]
+
+    return fitness_values
+##############################################################
 # Execute genetic algorithm
 print("Deriving DSO using genetic algorithm")
-NPOP = 30
-CXPB, MUTPB = 0.5, 0.2
-NGEN = 30
+NGEN = 30 # number of generations
+NPOP = 30  # Using larger values for real runs
+CXPB = 0.5 # crossover probability
+MUTPB = 0.2 # mutation probability
+
+# Function to safely clone individuals without deepcopy recursion errors
+def safe_clone(individuals):
+    """Clone individuals while avoiding recursion errors from World objects"""
+    # Store worlds temporarily and remove from individuals
+    stored_worlds = {}
+    for i, ind in enumerate(individuals):
+        if hasattr(ind, 'W'):
+            stored_worlds[i] = ind.W
+            delattr(ind, 'W')
+    
+    # Clone the individuals without World objects
+    cloned = list(map(toolbox.clone, individuals))
+    
+    # Create fresh World copies for cloned individuals
+    for i, ind in enumerate(cloned):
+        if i in stored_worlds:  # If original had a World
+            W_new = deepcopy(W_orig)  # Fresh copy from original
+            specify_routes(W_new, ind)  # Apply this individual's routes
+            ind.W = W_new
+    
+    # Restore original worlds
+    for i, world in stored_worlds.items():
+        individuals[i].W = world
+        
+    return cloned
 
 # Initial population
 pop = toolbox.population(n=NPOP)
-for ind in pop:
-    W = deepcopy(W_orig)
-    specify_routes(W, ind)
-    ind.W = W
-fitnesses = list(map(toolbox.evaluate, [ind.W for ind in pop]))
+
+# Use parallel fitness evaluation
+fitnesses = evaluate_population_parallel(pop)
 for ind, fit in zip(pop, fitnesses):
     ind.fitness.values = fit
 
 for g in range(NGEN):
     print(f"-- Generation {g} --")
     offspring = toolbox.select(pop, len(pop))
-    offspring = list(map(toolbox.clone, offspring))
+    offspring = safe_clone(offspring)
 
     # Crossover and mutation
     for child1, child2 in zip(offspring[::2], offspring[1::2]):
@@ -161,19 +229,22 @@ for g in range(NGEN):
 
     # Evaluate the individuals with an invalid fitness
     invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
-    for ind in invalid_ind:
-        W = deepcopy(W_orig)
-        specify_routes(W, ind)
-        ind.W = W
-    fitnesses = map(toolbox.evaluate, [ind.W for ind in invalid_ind])
-    for ind, fit in zip(invalid_ind, fitnesses):
-        ind.fitness.values = fit
+    
+    # Use parallel fitness evaluation for invalid individuals
+    if invalid_ind:
+        fitnesses = evaluate_population_parallel(invalid_ind)
+        for ind, fit in zip(invalid_ind, fitnesses):
+            ind.fitness.values = fit
 
     # Print the best individual
     best_ind = tools.selBest(pop, 1)[0]
     print("")
-    print("Best individual: ", best_ind)
+    # print("Best individual: ", best_ind)
     print("Fitness: ", best_ind.fitness.values[0])
+    best_ind_W = deepcopy(W_orig)
+    specify_routes(best_ind_W, best_ind)
+    best_ind.W = best_ind_W
+    best_ind.W.exec_simulation()
     print(best_ind.W.analyzer.basic_to_pandas())
 
     # Update the population

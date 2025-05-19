@@ -19,6 +19,12 @@ from .analyzer import *
 from .utils import *
 from .scenario_reader_writer import *
 
+def noprint(*args, **kwargs):
+    pass
+
+def zero_array_factory():
+    return np.zeros(int(W.TMAX / W.EULAR_DT))
+
 class Node:
     """
     Node in a network.
@@ -1631,8 +1637,6 @@ class World:
         if print_mode:
             W.print = print
         else:
-            def noprint(*args, **kwargs):
-                pass
             W.print = noprint
         W.save_mode = save_mode
         W.show_mode = show_mode
@@ -2090,8 +2094,8 @@ class World:
         W.TIME = 0 #s
 
         W.TSIZE = int(W.TMAX/W.DELTAT)
-        W.Q_AREA = ddict(lambda: np.zeros(int(W.TMAX/W.EULAR_DT)))
-        W.K_AREA = ddict(lambda: np.zeros(int(W.TMAX/W.EULAR_DT)))
+        W.Q_AREA = ddict(zero_array_factory)
+        W.K_AREA = ddict(zero_array_factory)
         for l in W.LINKS:
             l.init_after_tmax_fix()
 
