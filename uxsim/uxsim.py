@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import dijkstra
 import dill as pickle
+from functools import partial
 
 from .analyzer import *
 from .utils import *
@@ -22,8 +23,8 @@ from .scenario_reader_writer import *
 def noprint(*args, **kwargs):
     pass
 
-def zero_array_factory():
-    return np.zeros(int(W.TMAX / W.EULAR_DT))
+def zero_array(tmax, dt):
+    return np.zeros(int(tmax / dt))
 
 class Node:
     """
@@ -2094,8 +2095,9 @@ class World:
         W.TIME = 0 #s
 
         W.TSIZE = int(W.TMAX/W.DELTAT)
-        W.Q_AREA = ddict(zero_array_factory)
-        W.K_AREA = ddict(zero_array_factory)
+        factory = partial(zero_array, W.TMAX, W.EULAR_DT)
+        W.Q_AREA = ddict(factory)
+        W.K_AREA = ddict(factory)
         for l in W.LINKS:
             l.init_after_tmax_fix()
 

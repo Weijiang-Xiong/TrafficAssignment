@@ -2,7 +2,7 @@
 Simply run the simulation with the Sioux Falls Network
 https://github.com/bstabler/TransportationNetworks/tree/master/SiouxFalls
 
-
+The drivers will compute their shortest paths before the simulation starts, and then follow the chosen paths.
 """
 
 from uxsim import World
