@@ -83,7 +83,7 @@ def find_routes_parallel(od_pairs, world, n_routes=6, verbose=False):
 ##############################################################
 
 # Evaluate fitness by total travel time
-def evaluate_by_total_travel_time(W:World):
+def eval_simulation_fitness(W:World):
     W.exec_simulation()
     return - W.analyzer.average_delay,
 
@@ -116,7 +116,7 @@ def setup_ga_toolbox(W:World, routes, n_routes=6):
     def evaluate_individual(individual):
         world = W.copy()
         specify_routes(world, individual, routes)
-        return evaluate_by_total_travel_time(world)
+        return eval_simulation_fitness(world)
     
     # Define the evaluation, crossover, and mutation functions
     toolbox.register("evaluate", evaluate_individual)
@@ -146,7 +146,7 @@ def compute_fitness(individual_with_index, W_orig:World, routes):
     # Apply the individual's route specifications
     specify_routes(world, individual, routes)
     # Evaluate fitness
-    fitness_value = evaluate_by_total_travel_time(world)
+    fitness_value = eval_simulation_fitness(world)
     # Return index with the result to maintain original order
     return index, fitness_value
 
