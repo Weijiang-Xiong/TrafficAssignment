@@ -1,6 +1,7 @@
 import os
 import logging
 import inspect
+import argparse
 
 import numpy as np
 import pandas as pd
@@ -8,6 +9,7 @@ import matplotlib.pyplot as plt
 
 from functools import partial
 from collections import defaultdict
+from typing import Dict
 
 from uxsim import World, Link
 from uxsim.DTAsolvers import SolverDUE
@@ -63,15 +65,27 @@ def create_world_and_add_toll(create_world_func=create_world, toll_settings=None
     return world
 
 class SolverMarginalSocialCost:
-    
-    
-    def __init__(self, quantile_ratio=0.5, dso_iter=3, due_iter=3):
-        
+    def __init__(
+        self,
+        quantile_ratio=0.5,
+        dso_iter=30,
+        due_iter=20,
+        toll_method="flow",
+        toll_update_rate=0.2,
+        exp_name="sf_dso_msc",
+    ):
         self.quantile_ratio = quantile_ratio
         self.dso_iter = dso_iter
         self.due_iter = due_iter
+        
+        assert toll_method in ["flow", "density"], "cost_method should be either 'flow' or 'density'"
+        self.toll_method = toll_method
+        self.toll_update_rate = toll_update_rate
+        self.toll_settings = dict() # a running mean of the toll settings
+        
         self.metrics = defaultdict(list)
-        self.save_path = "outsf_dso_msc"
+        self.exp_name = exp_name
+        self.save_path = f"out{self.exp_name}"
         
         if not os.path.exists(self.save_path):
             os.makedirs(self.save_path, exist_ok=True)
@@ -80,10 +94,10 @@ class SolverMarginalSocialCost:
 
     def solve(self):
         
-        initial_world = create_world(name="sf_dso_msc")
+        initial_world = create_world(name=self.exp_name)
         initial_world.exec_simulation()
         initial_world.analyzer.basic_to_pandas().to_csv(f"{self.save_path}/basics_init.csv", index=False)
-        toll_settings = self.compute_marginal_social_cost(initial_world)
+        self.toll_settings = self.compute_marginal_social_cost(initial_world)
         
         # self.logger.info(f"initial toll settings: {self.collect_non_zero_tolls(toll_settings)}")
         
@@ -95,8 +109,8 @@ class SolverMarginalSocialCost:
             # DUE
             partial_create_world_with_toll = partial(
                 create_world_and_add_toll,
-                toll_settings=toll_settings,
-                name = "sf_dso_msc",
+                toll_settings=self.toll_settings,
+                name = self.exp_name,
             )
             
             signature = inspect.signature(partial_create_world_with_toll)
@@ -113,7 +127,16 @@ class SolverMarginalSocialCost:
             for key, value in df_DUE.items():
                 self.metrics[key].append(value)
             
-            toll_settings.update(self.compute_marginal_social_cost(W_DUE))
+            # update toll settings using the update rate
+            self.logger.info("Updating toll settings using newly computed marginal social cost")
+            new_toll_settings = self.compute_marginal_social_cost(W_DUE)
+            updated_toll_settings = self.update_dict(
+                old = self.toll_settings,
+                new = new_toll_settings,
+                w_old = 1 - self.scheduler(self.toll_update_rate, i),
+                w_new = self.scheduler(self.toll_update_rate, i)
+            )
+            self.toll_settings = updated_toll_settings
         
         self.final_analysis(W_DUE)
         self.plot_metrics()
@@ -133,7 +156,13 @@ class SolverMarginalSocialCost:
         for idx, link in enumerate(world.LINKS):
             link: Link
             if px_density[link.name] > link.k_star:
-                toll_settings[link.name] = - link.length / (link.tau * link.w * px_flow[link.name])
+                match self.toll_method:
+                    case "flow":
+                        # - L / (tau * w * q)
+                        toll_settings[link.name] = - link.length / (link.tau * link.w * px_flow[link.name])
+                    case "density":
+                        # L * k * tau / (1 - tau * w * k)^2
+                        toll_settings[link.name] = (link.length * px_density[link.name] * link.tau) / (1 - link.tau * link.w * px_density[link.name]) ** 2
 
         # normalize and apply sigmoid function to toll values
         toll_values = np.array([v for k,v in toll_settings.items()])
@@ -152,7 +181,26 @@ class SolverMarginalSocialCost:
         
         return toll_settings
 
+    @staticmethod
+    def update_dict(old:Dict, new:Dict, w_old, w_new):
+        all_keys = set(old.keys()) | set(new.keys())  # Union of keys
+        updated = {
+            key: w_old * old.get(key, 0) + w_new * new.get(key, 0)
+            for key in all_keys
+        }
+        return updated
+    
+    
+    def scheduler(self, x, iteration:int = 0):
         
+        if iteration < 0.6 * self.dso_iter:
+            return x
+        elif iteration < 0.8 * self.dso_iter:
+            return 0.5 * x
+        else:
+            return 0.25 * x
+    
+    
     @staticmethod
     def collect_non_zero_tolls(toll_settings):
         non_zero_tolls = {link: round(float(toll), 1) for link, toll in toll_settings.items() if toll != 0}
@@ -192,4 +240,21 @@ class SolverMarginalSocialCost:
     
     
 if __name__ == "__main__":
-    SolverMarginalSocialCost(dso_iter=50, due_iter=20).solve() 
+    
+    parser = argparse.ArgumentParser(description="Run the DSO simulation")
+    parser.add_argument("--dso_iter", type=int, default=50, help="number of DSO iterations")
+    parser.add_argument("--due_iter", type=int, default=20, help="number of DUE iterations")
+    parser.add_argument("--toll_method", type=str, default="density", help="toll method: 'flow' or 'density'")
+    parser.add_argument("--quantile_ratio", type=float, default=0.5, help="quantile ratio for toll calculation")
+    parser.add_argument("--toll_update_rate", type=float, default=0.2, help="toll update rate")
+    args = parser.parse_args()
+
+    solver = SolverMarginalSocialCost(
+        dso_iter=args.dso_iter,
+        due_iter=args.due_iter,
+        toll_method=args.toll_method,
+        quantile_ratio=args.quantile_ratio,
+        toll_update_rate=args.toll_update_rate,
+        exp_name=f"sf_dso_msc_m{args.toll_method}_q{args.quantile_ratio}_u{args.toll_update_rate}_dso{args.dso_iter}_due{args.due_iter}",
+    )
+    solver.solve()

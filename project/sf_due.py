@@ -24,7 +24,7 @@ def create_world():
 
 # DUE
 solver_DUE = SolverDUE(create_world)
-solver_DUE.solve(max_iter=5, print_progress=True)
+solver_DUE.solve(max_iter=10, print_progress=True)
 W_DUE = solver_DUE.W_sol
 
 # Results analysis
