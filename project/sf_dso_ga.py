@@ -82,7 +82,8 @@ def find_routes_parallel(od_pairs, world, n_routes=6, verbose=False):
 # Genetic Algorithm Components
 ##############################################################
 
-# Evaluate fitness by total travel time
+# Evaluate fitness by average delay, this is to avoid a cheating solution
+# where all vehicles form a gridlock and no one moves (so no travel time)
 def eval_simulation_fitness(W:World):
     W.exec_simulation()
     return - W.analyzer.average_delay,
@@ -217,6 +218,17 @@ def run_genetic_algorithm(W_orig, routes, NGEN=30, NPOP=30, CXPB=0.5, MUTPB=0.2,
     # Initial population
     pop = toolbox.population(n=NPOP)
     
+    # since routes are sorted from shortest to longer, setting a route choices to 0
+    # means everyone takes shortest path. We start the Genetic Algorithm with this
+    # this is different from dynamic user optimal (DUO) solution, where all the vehicles 
+    # will compute a shortest path at every simulation step, based on the current average 
+    # speed of all links (plus route choice penalty)
+    # see the codes for Link.set_traveltime_instant, RouteChoice.route_search_all
+    # both classes defined in uxsim.py
+    for j in range(len(pop)):
+        for i in range(len(pop[0])):
+            pop[j][i] = 0
+    
     # Use parallel fitness evaluation
     fitnesses = evaluate_population_parallel(pop, W_orig, routes)
     for ind, fit in zip(pop, fitnesses):
@@ -324,7 +336,7 @@ if __name__ == "__main__":
 
 
     # Run genetic algorithm
-    best_ind = run_genetic_algorithm(W.copy(), routes, NGEN=30, NPOP=30)
+    best_ind = run_genetic_algorithm(W.copy(), routes, NGEN=50, NPOP=50)
     
     # Compare results
     compare_duo_dso(W.copy(), get_world_from_individual(best_ind, W, routes))
